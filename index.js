@@ -87,7 +87,7 @@ app.post("/auth", async (req, res) => {
     },
   });
 
-  return  res.json({ status: "OK", token });
+  return res.json({ status: "OK", token });
 });
 
 app.post("/check_authtoken", async (req, res) => {
@@ -101,7 +101,7 @@ app.post("/check_authtoken", async (req, res) => {
       .status(400)
       .json({ status: "FAILED", reason: "AUTHCODE_INVALID" });
 
-  return  res.json({ status: "OK" });
+  return res.json({ status: "OK" });
 });
 
 app.post("/deposit", async (req, res) => {
@@ -110,6 +110,34 @@ app.post("/deposit", async (req, res) => {
       id_user: req.body.id_user,
     },
   });
+  if (!session)
+    return res
+      .status(400)
+      .json({ status: "FAILED", reason: "AUTHCODE_INVALID" });
+
+  sio.emit("splitpay-value-deposit", req.body.value);
+
+  const currentAmount = session.balance;
+  const payloadAmount = req.body.value;
+
+  await prisma.splitPay.updateMany({
+    where: {
+      id_user: session.id_user,
+    },
+    data: {
+      balance: sumDecimal(currentAmount, payloadAmount),
+    },
+  });
+
+  return res.json({ message: "OK" });
+});
+app.post("/deposit_splitpay", async (req, res) => {
+  if (req.body.splitpay_password !== process.env.SPLITPAY_PASSWORD)
+    return res
+      .status(400)
+      .json({ status: "FAILED", reason: "SPLITPAY_INVALID" });
+
+  const session = await prisma.splitPay.findFirst();
   if (!session)
     return res
       .status(400)
