@@ -254,6 +254,7 @@ app.post("/finalize_deposit", async (req, res) => {
         id: session.id,
       },
     });
+    await prisma.splitPayCode.delete();
 
     return res.json({ status: "OK" });
   } catch (e) {
