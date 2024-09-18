@@ -8,29 +8,28 @@ datasource db {
 }
 
 model Users {
-  id              String             @id @default(uuid())
-  name            String
-  lastname        String?
-  email           String
-  password        String
-  role            String             @default("user")
-  balance         Float?             @default(0.00)
-  freezebalance   Float?             @default(0.00)
-  token           String?
-  emailToken      String?
-  updatableEmail  String?
-  passToken       String?
-  cart            CartUserProducts[]
-  createdCombo    Combo[]
-  createdProducts Products[]
-  ModRecharges    Recharges[]        @relation("mod")
-  userRecharges   Recharges[]        @relation("user")
-
-  refoundBalance   UserRefoundBalance[] @relation("user")
-  refoundsAsMod    UserRefoundBalance[] @relation("mod")
+  id               String               @id @default(uuid())
+  name             String
+  lastname         String?
+  email            String
+  password         String
+  role             String               @default("user")
+  balance          Float?               @default(0.00)
+  token            String?
+  emailToken       String?
+  updatableEmail   String?
+  passToken        String?
+  freezebalance    Float?               @default(0.00)
+  cart             CartUserProducts[]
+  createdCombo     Combo[]
   orders           Orders[]
+  createdProducts  Products[]
+  ModRecharges     Recharges[]          @relation("mod")
+  userRecharges    Recharges[]          @relation("user")
+  splitpay_session SplitPaySession?
   tickets          Tickets[]
-  splitpay_session SplitPay[]
+  refoundsAsMod    UserRefoundBalance[] @relation("mod")
+  refoundBalance   UserRefoundBalance[] @relation("user")
 }
 
 model Categories {
@@ -43,10 +42,10 @@ model Products {
   id          String             @id @default(uuid())
   name        String
   price       Float
-  stock       Int                @default(0)
   description String
   categorieID String
   seller_id   String
+  stock       Int                @default(0)
   createadAt  DateTime           @default(now())
   usersCarts  CartUserProducts[]
   combo       ComboProducts[]
@@ -65,32 +64,26 @@ model ProductImages {
 }
 
 model Combo {
-  id          String   @id @default(uuid())
-  name        String
-  description String
-  stock       Int      @default(0)
-  price       Float
-  createadAt  DateTime @default(now())
-
+  id               String             @id @default(uuid())
+  name             String
+  description      String
+  price            Float
   id_seller        String
+  stock            Int                @default(0)
+  createadAt       DateTime           @default(now())
+  CartUserProducts CartUserProducts[]
   seller           Users              @relation(fields: [id_seller], references: [id], onDelete: Cascade)
   products         ComboProducts[]
-  CartUserProducts CartUserProducts[]
   ticketsOn        Tickets[]
 }
 
 model ComboProducts {
   id         String   @id @default(uuid())
   id_product String
-  id_combo   String
   quantity   Int
+  id_combo   String
   combo      Combo    @relation(fields: [id_combo], references: [id], onDelete: Cascade)
   product    Products @relation(fields: [id_product], references: [id], onDelete: Cascade)
-}
-
-enum RechargeType {
-  default
-  splitpay
 }
 
 model Recharges {
@@ -98,72 +91,96 @@ model Recharges {
   userID    String
   modID     String?
   balance   Float
-  type      RechargeType @default(default)
   createdAt DateTime     @default(now())
+  type      RechargeType @default(default)
   mod       Users?       @relation("mod", fields: [modID], references: [id], onDelete: Cascade)
   user      Users        @relation("user", fields: [userID], references: [id], onDelete: Cascade)
 }
 
 model CartUserProducts {
-  id          String  @id @default(uuid())
-  id_user     String
-  id_product  String?
-  id_combo    String?
-  //It can be disabled on cart
-  enableToBuy Boolean @default(true)
-
-  ticket_qr String @default(uuid()) //TODO May Delete
-
-  //If this is true it means that some one bought it 
-  ticket_enabled Boolean @default(false) //TODO May Delete
-
-  //If it is true has been claimed
-  ticket_redeem Boolean @default(false) //TODO May Delete
-
-  claimedAt DateTime? //TODO May delete
-
-  purchaseAt DateTime?
-  createdAt  DateTime  @default(now())
-  quantity   Int
-  product    Products? @relation(fields: [id_product], references: [id], onDelete: Cascade)
-  combo      Combo?    @relation(fields: [id_combo], references: [id], onDelete: Cascade)
-  user       Users     @relation(fields: [id_user], references: [id], onDelete: Cascade)
+  id             String    @id @default(uuid())
+  id_user        String
+  id_product     String?
+  quantity       Int
+  id_combo       String?
+  ticket_qr      String    @default(uuid())
+  enableToBuy    Boolean   @default(true)
+  ticket_enabled Boolean   @default(false)
+  ticket_redeem  Boolean   @default(false)
+  claimedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  purchaseAt     DateTime?
+  combo          Combo?    @relation(fields: [id_combo], references: [id], onDelete: Cascade)
+  product        Products? @relation(fields: [id_product], references: [id], onDelete: Cascade)
+  user           Users     @relation(fields: [id_user], references: [id], onDelete: Cascade)
 }
 
 model Tickets {
-  id         String  @id @default(uuid())
-  id_user    String
-  id_product String?
-  id_combo   String?
-
+  id            String    @id @default(uuid())
+  id_user       String
+  id_product    String?
+  id_combo      String?
   ticket_redeem Boolean   @default(false)
   claimedAt     DateTime?
   quantity      Int
-
-  product Products? @relation(fields: [id_product], references: [id], onDelete: Cascade)
-  combo   Combo?    @relation(fields: [id_combo], references: [id], onDelete: Cascade)
-  user    Users     @relation(fields: [id_user], references: [id], onDelete: Cascade)
+  combo         Combo?    @relation(fields: [id_combo], references: [id], onDelete: Cascade)
+  product       Products? @relation(fields: [id_product], references: [id], onDelete: Cascade)
+  user          Users     @relation(fields: [id_user], references: [id], onDelete: Cascade)
 }
 
 model Orders {
-  id         String   @id @default(uuid())
-  id_user    String
-  totalPrice Float
-  createdAt  DateTime @default(now())
-
-  user           Users            @relation(fields: [id_user], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  id             String           @id @default(uuid())
+  id_user        String
+  totalPrice     Float
+  createdAt      DateTime         @default(now())
+  user           Users            @relation(fields: [id_user], references: [id], onDelete: Cascade)
   ordersProducts OrdersProducts[]
 }
 
-//Maybe not a relationship with products cuz, dont want to update dynamic data, want to store static
 model OrdersProducts {
   id            String @id @default(uuid())
   id_order      String
   product_name  String
-  product_price Float
   quantity      Int
+  product_price Float
+  order         Orders @relation(fields: [id_order], references: [id], onDelete: Cascade)
+}
 
-  order Orders @relation(fields: [id_order], references: [id], onDelete: Cascade, onUpdate: Cascade)
+model UserRefoundBalance {
+  id             String            @id @default(uuid())
+  status         UserRefoundStatus @default(pending)
+  refoundBalance Float
+  reason         String
+  id_user        String
+  id_mod         String?
+  checkedAt      DateTime?
+  createdAt      DateTime          @default(now())
+  mod            Users?            @relation("mod", fields: [id_mod], references: [id], onDelete: Cascade)
+  user           Users             @relation("user", fields: [id_user], references: [id], onDelete: Cascade)
+}
+
+model SplitPay {
+  id              String           @id @default(uuid())
+  key             String
+  name            String
+  createdAt       DateTime         @default(now())
+  status          SplitPayStatus   @default(not_configured)
+  accesCode       String?
+  splitPaySession SplitPaySession?
+}
+
+model SplitPaySession {
+  id          String   @id @default(uuid())
+  balance     Float
+  id_user     String   @unique
+  id_splitpay String   @unique
+  splitpay    SplitPay @relation(fields: [id_splitpay], references: [id], onDelete: Cascade)
+  user        Users    @relation(fields: [id_user], references: [id], onDelete: Cascade)
+}
+
+enum RechargeType {
+  default
+  splitpay
 }
 
 enum UserRefoundStatus {
@@ -173,32 +190,7 @@ enum UserRefoundStatus {
   canceled
 }
 
-model UserRefoundBalance {
-  id             String            @id @default(uuid())
-  status         UserRefoundStatus @default(pending)
-  refoundBalance Float
-  reason         String
-  id_user        String
-
-  //Who give refound/money
-  id_mod String?
-
-  createdAt DateTime  @default(now())
-  checkedAt DateTime?
-
-  mod  Users? @relation("mod", fields: [id_mod], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  user Users  @relation("user", fields: [id_user], references: [id], onDelete: Cascade, onUpdate: Cascade)
-}
-
-model SplitPay {
-  id      String  @id @default(uuid())
-  balance Float
-  id_user String?
-
-  user Users? @relation(fields: [id_user], references: [id], onDelete: Cascade, onUpdate: Cascade)
-}
-
-model SplitPayCode{
-  id String @id @default(uuid())
-  code String
+enum SplitPayStatus {
+  not_configured
+  active
 }

@@ -4,23 +4,7 @@ import io from "socket.io-client";
 import { prisma } from "./db.js";
 import { sumDecimal } from "./decimal.js";
 import jwt from "jsonwebtoken";
-let id_code_splitpay = "";
-
-(async () => {
-  const isCode = await prisma.splitPayCode.findFirst();
-  if (isCode) {
-    id_code_splitpay = isCode.id;
-    return;
-  }
-
-  const newCodeSplitPay = await prisma.splitPayCode.create({
-    data: {
-      code: generateSixDigitNumber(),
-    },
-  });
-
-  id_code_splitpay = newCodeSplitPay.id;
-})();
+import { auth_middleware } from "./auth_middlware.js";
 
 const app = express();
 const sio = io(
@@ -33,67 +17,110 @@ app.use(cors());
 app.get("/", (req, res) => {
   return res.json({ message: "SplitPay API" });
 });
-
-app.get("/authcode", async (req, res) => {
-  const { code } = await prisma.splitPayCode.update({
+app.get("/verify_splitpay", auth_middleware, async (req, res) => {
+  try {
+    await prisma.splitPay.update({
+      where: {
+        id: req.splitPay.id,
+      },
+      data: {
+        status: "active",
+      },
+    });
+    return res.json({ ok: "ok" });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ error: "error" });
+  }
+});
+app.get("/get_splitpay", auth_middleware, (req,res)=>{
+  return res.json({...req.splitPay})
+})
+app.get("/authcode", auth_middleware, async (req, res) => {
+  const splitPay = await prisma.splitPay.update({
     where: {
-      id: id_code_splitpay,
+      id: req.splitPay.id,
     },
     data: {
-      code: generateSixDigitNumber(),
+      accesCode: generateSixDigitNumber(),
     },
   });
-  return res.json({ code });
-});
 
+  return res.json({ code: splitPay.accesCode });
+});
 app.post("/auth", async (req, res) => {
   if (!req.body.authcode) {
     return res.status(400).json({ status: "FAILED", reason: "NO_AUTHCODE" });
   }
-  if (!req.body.id_user) {
+  if (!req.body.token_jwt) {
     return res.status(400).json({ status: "FAILED", reason: "NO_ID_USER" });
   }
-  const { code: authcode } = await prisma.splitPayCode.findFirst({
-    where: {
-      id: id_code_splitpay,
-    },
-  });
-  if (authcode !== req.body.authcode) {
-    return res
-      .status(401)
-      .json({ status: "FAILED", reason: "AUTHCODE_INVALID" });
-  }
 
-  const token = jwt.sign(
-    { splitpay_code: authcode, id_user: req.body.id_user },
-    process.env.JWT_SECRET,
-    { algorithm: "HS256" }
+  const { id: id_user } = jwt.verify(
+    req.body.token_jwt,
+    process.env.JWT_SECRET
   );
 
-  const isSession = await prisma.splitPay.findFirst({
+  if (!id_user)
+    return res.status(403).json({ status: "FAILED", error: "NO_ID_USER" });
+
+  const splitPay = await prisma.splitPay.findFirst({
     where: {
-      id_user: req.body.id_user,
+      accesCode: req.body.authcode,
     },
   });
 
+  if (!splitPay)
+    return res
+      .status(403)
+      .json({ status: "FAILED", error: "AUTHCODE_INVALID" });
+
+  let token = "";
+
+  const isSession = await prisma.splitPaySession.findFirst({
+    where: {
+      AND: [{ id_user: req.body.id_user }, { id_splitpay: splitPay.id }],
+    },
+  });
+
+
   if (isSession) {
+    token = jwt.sign({ splitpay_session: isSession.id },process.env.JWT_SECRET);
     return res.json({ status: "OK", token });
   }
 
-  await prisma.splitPay.create({
+  const splitPaySession = await prisma.splitPaySession.create({
     data: {
       balance: 0,
-      id_user: req.body.id_user,
+      id_user: id_user,
+      id_splitpay: splitPay.id,
     },
   });
 
+  token = jwt.sign({ splitpay_session: splitPaySession.id }, process.env.JWT_SECRET);
+
   return res.json({ status: "OK", token });
 });
-
 app.post("/check_authtoken", async (req, res) => {
-  const session = await prisma.splitPay.findFirst({
+  if (!req.body.splitpayjwt) {
+    return res
+      .status(400)
+      .json({ status: "FAILED", reason: "AUTHCODE_INVALID" });
+  }
+
+  const { splitpay_session } = jwt.verify(
+    req.body.splitpayjwt,
+    process.env.JWT_SECRET
+  );
+
+  if (!splitpay_session)
+    return res
+      .status(403)
+      .json({ status: "FAILED", error: "AUTHCODE_INVALID" });
+
+  const session = await prisma.splitPaySession.findFirst({
     where: {
-      id_user: req.body.id_user,
+      id: splitpay_session,
     },
   });
   if (!session)
@@ -103,11 +130,54 @@ app.post("/check_authtoken", async (req, res) => {
 
   return res.json({ status: "OK" });
 });
-
 app.post("/deposit", async (req, res) => {
-  const session = await prisma.splitPay.findFirst({
+  if (!req.body.splitpayjwt) {
+    return res
+      .status(400)
+      .json({ status: "FAILED", reason: "AUTHCODE_INVALID" });
+  }
+
+  const { splitpay_session } = jwt.verify(
+    req.body.splitpayjwt,
+    process.env.JWT_SECRET
+  );
+
+  if (!splitpay_session)
+    return res
+      .status(403)
+      .json({ status: "FAILED", error: "AUTHCODE_INVALID" });
+
+  const session = await prisma.splitPaySession.findFirst({
     where: {
-      id_user: req.body.id_user,
+      id: splitpay_session,
+    },
+  });
+
+  if (!session)
+    return res
+      .status(400)
+      .json({ status: "FAILED", reason: "AUTHCODE_INVALID" });
+
+  sio.emit("splitpay-value-deposit", req.body.value);
+
+  const currentAmount = session.balance;
+  const payloadAmount = req.body.value;
+
+  await prisma.splitPaySession.update({
+    where: {
+      id: splitpay_session,
+    },
+    data: {
+      balance: sumDecimal(currentAmount, payloadAmount),
+    },
+  });
+
+  return res.json({ message: "OK" });
+});
+app.post("/deposit_splitpay", auth_middleware, async (req, res) => {
+  const session = await prisma.splitPaySession.findFirst({
+    where: {
+      id_splitpay: req.splitPay.id,
     },
   });
   if (!session)
@@ -120,7 +190,7 @@ app.post("/deposit", async (req, res) => {
   const currentAmount = session.balance;
   const payloadAmount = req.body.value;
 
-  await prisma.splitPay.updateMany({
+  await prisma.splitPaySession.updateMany({
     where: {
       id_user: session.id_user,
     },
@@ -131,42 +201,30 @@ app.post("/deposit", async (req, res) => {
 
   return res.json({ message: "OK" });
 });
-app.post("/deposit_splitpay", async (req, res) => {
-  if (req.body.splitpay_password !== process.env.SPLITPAY_PASSWORD)
-    return res
-      .status(400)
-      .json({ status: "FAILED", reason: "SPLITPAY_INVALID" });
-
-  const session = await prisma.splitPay.findFirst();
-  if (!session)
-    return res
-      .status(400)
-      .json({ status: "FAILED", reason: "AUTHCODE_INVALID" });
-
-  sio.emit("splitpay-value-deposit", req.body.value);
-
-  const currentAmount = session.balance;
-  const payloadAmount = req.body.value;
-
-  await prisma.splitPay.updateMany({
-    where: {
-      id_user: session.id_user,
-    },
-    data: {
-      balance: sumDecimal(currentAmount, payloadAmount),
-    },
-  });
-
-  return res.json({ message: "OK" });
-});
-
 app.post("/finalize_deposit", async (req, res) => {
   try {
-    const session = await prisma.splitPay.findFirst({
+    if (!req.body.splitpayjwt) {
+      return res
+        .status(400)
+        .json({ status: "FAILED", reason: "AUTHCODE_INVALID" });
+    }
+
+    const { splitpay_session } = jwt.verify(
+      req.body.splitpayjwt,
+      process.env.JWT_SECRET
+    );
+
+    if (!splitpay_session)
+      return res
+        .status(403)
+        .json({ status: "FAILED", error: "AUTHCODE_INVALID" });
+
+    const session = await prisma.splitPaySession.findFirst({
       where: {
-        id_user: req.body.id_user,
+        id: splitpay_session,
       },
     });
+
     if (!session)
       return res
         .status(400)
@@ -191,7 +249,7 @@ app.post("/finalize_deposit", async (req, res) => {
       });
     }
 
-    await prisma.splitPay.delete({
+    await prisma.splitPaySession.delete({
       where: {
         id: session.id,
       },
@@ -203,7 +261,6 @@ app.post("/finalize_deposit", async (req, res) => {
     res.status(400).json({ status: "FAILED", reason: "SERVER_ERROR" });
   }
 });
-
 app.listen(5001, () => {
   console.log("We are ready on 5001");
 });
